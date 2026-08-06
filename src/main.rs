@@ -1,5 +1,7 @@
 use std::env;
 use std::fs;
+use std::fs::File;
+use std::io::Read;
 use std::path::Path;
 use std::process::Command;
 use std::os::unix::process::CommandExt;
@@ -8,6 +10,18 @@ fn sh(cmd: &str) {
     println!("$ {}", cmd);
     let status = Command::new("bash").arg("-c").arg(cmd).status();
     println!("(exit: {:?})", status);
+}
+
+fn generate_secret() -> String {
+    let mut buf = [0u8; 16];
+    if let Ok(mut f) = File::open("/dev/urandom") {
+        let _ = f.read_exact(&mut buf);
+    }
+    buf.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+fn is_valid_secret(s: &str) -> bool {
+    s.len() == 32 && s.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 fn main() {
@@ -36,27 +50,21 @@ fn main() {
         sh(&format!("chmod +x {}", bin_path));
     }
 
-    // persist a random secret across restarts
+    // load or generate a valid 32-hex-char secret, persisted across restarts
     let secret_file = format!("{}/mtproxy_secret.txt", home);
-    let secret = if let Ok(s) = env::var("MTPROXY_SECRET") {
-        s
-    } else if Path::new(&secret_file).exists() {
-        fs::read_to_string(&secret_file)
+    let mut secret = env::var("MTPROXY_SECRET").unwrap_or_default();
+
+    if !is_valid_secret(&secret) {
+        secret = fs::read_to_string(&secret_file)
             .unwrap_or_default()
             .trim()
-            .to_string()
-    } else {
-        let out = Command::new("bash")
-            .arg("-c")
-            .arg("head -c 16 /dev/urandom | xxd -ps")
-            .output();
-        let s = match out {
-            Ok(o) => String::from_utf8_lossy(&o.stdout).trim().to_string(),
-            Err(_) => "0123456789abcdef0123456789abcdef".to_string(),
-        };
-        let _ = fs::write(&secret_file, &s);
-        s
-    };
+            .to_string();
+    }
+
+    if !is_valid_secret(&secret) {
+        secret = generate_secret();
+        let _ = fs::write(&secret_file, &secret);
+    }
 
     let port = env::var("SERVER_PORT").unwrap_or_else(|_| "443".to_string());
 
