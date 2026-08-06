@@ -27,6 +27,7 @@ fn is_valid_secret(s: &str) -> bool {
 fn main() {
     let home = env::var("HOME").unwrap_or_else(|_| "/home/container".to_string());
     let bin_path = format!("{}/mtproto-proxy", home);
+    let aes_pwd_path = format!("{}/proxy-secret", home);
 
     // detect architecture
     let arch_out = Command::new("uname").arg("-m").output();
@@ -50,7 +51,13 @@ fn main() {
         sh(&format!("chmod +x {}", bin_path));
     }
 
-    // load or generate a valid 32-hex-char secret, persisted across restarts
+    // download / refresh the official Telegram AES secret definition file
+    sh(&format!(
+        "curl -s -o {} https://core.telegram.org/getProxySecret",
+        aes_pwd_path
+    ));
+
+    // load or generate a valid 32-hex-char proxy secret, persisted across restarts
     let secret_file = format!("{}/mtproxy_secret.txt", home);
     let mut secret = env::var("MTPROXY_SECRET").unwrap_or_default();
 
@@ -82,7 +89,7 @@ fn main() {
             "-H", &port,
             "--direct",
             "-p", "8888",
-            "--aes-pwd", "/dev/null",
+            "--aes-pwd", &aes_pwd_path,
         ])
         .exec();
 
