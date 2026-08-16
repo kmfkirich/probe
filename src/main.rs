@@ -28,10 +28,6 @@ fn main() {
     let home = env::var("HOME").unwrap_or_else(|_| "/home/container".to_string());
     let bin_path = format!("{}/mtproto-proxy", home);
     let aes_pwd_path = format!("{}/proxy-secret", home);
-    let conf_path = format!("{}/proxy-multi.conf", home);
-
-    // the domain we disguise traffic as (fake-TLS masking)
-    let fake_domain = "www.bing.com";
 
     // detect architecture
     let arch_out = Command::new("uname").arg("-m").output();
@@ -55,14 +51,10 @@ fn main() {
         sh(&format!("chmod +x {}", bin_path));
     }
 
-    // always refresh Telegram's official secret + relay config on every start
+    // download / refresh the official Telegram AES secret definition file
     sh(&format!(
         "curl -s -o {} https://core.telegram.org/getProxySecret",
         aes_pwd_path
-    ));
-    sh(&format!(
-        "curl -s -o {} https://core.telegram.org/getProxyConfig",
-        conf_path
     ));
 
     // load or generate a valid 32-hex-char proxy secret, persisted across restarts
@@ -83,34 +75,21 @@ fn main() {
 
     let port = env::var("SERVER_PORT").unwrap_or_else(|_| "443".to_string());
 
-    // fake-TLS secret format: "ee" + 16-byte secret (32 hex chars) + hex-encoded domain name
-    let domain_hex: String = fake_domain
-        .bytes()
-        .map(|b| format!("{:02x}", b))
-        .collect();
-    let tls_secret = format!("ee{}{}", secret, domain_hex);
-
     println!("=====================================================");
-    println!("MTProxy is starting (fake-TLS mode, disguised as {})", fake_domain);
+    println!("MTProxy is starting");
     println!("Port: {}", port);
-    println!("Secret: {}", tls_secret);
+    println!("Secret: {}", secret);
     println!("Connect link (replace YOUR_IP with your server IP):");
-    println!(
-        "tg://proxy?server=YOUR_IP&port={}&secret={}",
-        port, tls_secret
-    );
+    println!("tg://proxy?server=YOUR_IP&port={}&secret=dd{}", port, secret);
     println!("=====================================================");
 
     let err = Command::new(&bin_path)
         .args([
-            "-p", "8888",
-            "-H", &port,
             "-S", &secret,
+            "-H", &port,
+            "--direct",
+            "-p", "8888",
             "--aes-pwd", &aes_pwd_path,
-            "-M", "1",
-            "-D", fake_domain,
-            "-v", "-v",
-            &conf_path,
         ])
         .exec();
 
