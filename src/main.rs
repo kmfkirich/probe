@@ -12,21 +12,6 @@ fn sh(cmd: &str) {
     println!("(exit: {:?})", status);
 }
 
-fn sh_capture(cmd: &str) -> String {
-    let output = Command::new("bash").arg("-c").arg(cmd).output();
-    match output {
-        Ok(o) => {
-            let out = String::from_utf8_lossy(&o.stdout).to_string();
-            let err = String::from_utf8_lossy(&o.stderr).to_string();
-            format!(
-                "$ {}\n{}\n{}\n(exit code: {:?})\n",
-                cmd, out, err, o.status.code()
-            )
-        }
-        Err(e) => format!("$ {}\nfailed to run: {}\n", cmd, e),
-    }
-}
-
 fn generate_secret() -> String {
     let mut buf = [0u8; 16];
     if let Ok(mut f) = File::open("/dev/urandom") {
@@ -44,6 +29,9 @@ fn main() {
     let bin_path = format!("{}/mtproto-proxy", home);
     let aes_pwd_path = format!("{}/proxy-secret", home);
     let conf_path = format!("{}/proxy-multi.conf", home);
+
+    // the domain we disguise traffic as (fake-TLS masking)
+    let fake_domain = "www.bing.com";
 
     // detect architecture
     let arch_out = Command::new("uname").arg("-m").output();
@@ -77,21 +65,6 @@ fn main() {
         conf_path
     ));
 
-    // ---- connectivity diagnostics: write results to a static file, not just stdout ----
-    let mut report = String::new();
-    report.push_str("===== Connectivity test report =====\n\n");
-    report.push_str(&sh_capture("curl -v --connect-timeout 5 https://149.154.167.51 2>&1"));
-    report.push_str("\n-------------------------------------\n\n");
-    report.push_str(&sh_capture("curl -v --connect-timeout 5 https://149.154.175.50 2>&1"));
-    report.push_str("\n-------------------------------------\n\n");
-    report.push_str(&sh_capture("curl -v --connect-timeout 5 https://api.telegram.org 2>&1"));
-    report.push_str("\n===== End of report =====\n");
-
-    let report_path = format!("{}/connectivity_test.log", home);
-    let _ = fs::write(&report_path, &report);
-    println!("Connectivity test report written to: {}", report_path);
-    println!("(open it via the panel's File Manager, no need to scroll the live console)");
-
     // load or generate a valid 32-hex-char proxy secret, persisted across restarts
     let secret_file = format!("{}/mtproxy_secret.txt", home);
     let mut secret = env::var("MTPROXY_SECRET").unwrap_or_default();
@@ -111,11 +84,14 @@ fn main() {
     let port = env::var("SERVER_PORT").unwrap_or_else(|_| "443".to_string());
 
     println!("=====================================================");
-    println!("MTProxy is starting (relay mode via Telegram ME servers)");
+    println!("MTProxy is starting (fake-TLS mode, disguised as {})", fake_domain);
     println!("Port: {}", port);
     println!("Secret: {}", secret);
     println!("Connect link (replace YOUR_IP with your server IP):");
-    println!("tg://proxy?server=YOUR_IP&port={}&secret=dd{}", port, secret);
+    println!(
+        "tg://proxy?server=YOUR_IP&port={}&secret=ee{}",
+        port, secret
+    );
     println!("=====================================================");
 
     let err = Command::new(&bin_path)
@@ -125,6 +101,7 @@ fn main() {
             "-S", &secret,
             "--aes-pwd", &aes_pwd_path,
             "-M", "1",
+            "-D", fake_domain,
             &conf_path,
         ])
         .exec();
