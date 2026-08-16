@@ -83,14 +83,21 @@ fn main() {
 
     let port = env::var("SERVER_PORT").unwrap_or_else(|_| "443".to_string());
 
+    // fake-TLS secret format: "ee" + 16-byte secret (32 hex chars) + hex-encoded domain name
+    let domain_hex: String = fake_domain
+        .bytes()
+        .map(|b| format!("{:02x}", b))
+        .collect();
+    let tls_secret = format!("ee{}{}", secret, domain_hex);
+
     println!("=====================================================");
     println!("MTProxy is starting (fake-TLS mode, disguised as {})", fake_domain);
     println!("Port: {}", port);
-    println!("Secret: {}", secret);
+    println!("Secret: {}", tls_secret);
     println!("Connect link (replace YOUR_IP with your server IP):");
     println!(
-        "tg://proxy?server=YOUR_IP&port={}&secret=ee{}",
-        port, secret
+        "tg://proxy?server=YOUR_IP&port={}&secret={}",
+        port, tls_secret
     );
     println!("=====================================================");
 
@@ -102,6 +109,7 @@ fn main() {
             "--aes-pwd", &aes_pwd_path,
             "-M", "1",
             "-D", fake_domain,
+            "-v", "-v",
             &conf_path,
         ])
         .exec();
