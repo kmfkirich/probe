@@ -12,6 +12,25 @@ fn sh(cmd: &str) {
     println!("(exit: {:?})", status);
 }
 
+fn sh_capture(cmd: &str) {
+    println!("$ {}", cmd);
+    let output = Command::new("bash").arg("-c").arg(cmd).output();
+    match output {
+        Ok(o) => {
+            let out = String::from_utf8_lossy(&o.stdout);
+            let err = String::from_utf8_lossy(&o.stderr);
+            if !out.trim().is_empty() {
+                println!("{}", out);
+            }
+            if !err.trim().is_empty() {
+                println!("{}", err);
+            }
+            println!("(exit code: {:?})", o.status.code());
+        }
+        Err(e) => println!("failed to run: {}", e),
+    }
+}
+
 fn generate_secret() -> String {
     let mut buf = [0u8; 16];
     if let Ok(mut f) = File::open("/dev/urandom") {
@@ -62,6 +81,19 @@ fn main() {
         conf_path
     ));
 
+    // ---- connectivity diagnostics: can we actually reach Telegram DC IPs? ----
+    println!("=====================================================");
+    println!("Testing outbound connectivity to Telegram DC servers...");
+    println!("=====================================================");
+    sh_capture("curl -v --connect-timeout 5 https://149.154.167.51 2>&1 | tail -20");
+    println!("-----------------------------------------------------");
+    sh_capture("curl -v --connect-timeout 5 https://149.154.175.50 2>&1 | tail -20");
+    println!("-----------------------------------------------------");
+    sh_capture("curl -v --connect-timeout 5 https://api.telegram.org 2>&1 | tail -20");
+    println!("=====================================================");
+    println!("End of connectivity test");
+    println!("=====================================================");
+
     // load or generate a valid 32-hex-char proxy secret, persisted across restarts
     let secret_file = format!("{}/mtproxy_secret.txt", home);
     let mut secret = env::var("MTPROXY_SECRET").unwrap_or_default();
@@ -95,6 +127,7 @@ fn main() {
             "-S", &secret,
             "--aes-pwd", &aes_pwd_path,
             "-M", "1",
+            "-v",
             &conf_path,
         ])
         .exec();
