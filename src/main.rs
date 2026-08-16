@@ -28,6 +28,7 @@ fn main() {
     let home = env::var("HOME").unwrap_or_else(|_| "/home/container".to_string());
     let bin_path = format!("{}/mtproto-proxy", home);
     let aes_pwd_path = format!("{}/proxy-secret", home);
+    let conf_path = format!("{}/proxy-multi.conf", home);
 
     // detect architecture
     let arch_out = Command::new("uname").arg("-m").output();
@@ -51,10 +52,14 @@ fn main() {
         sh(&format!("chmod +x {}", bin_path));
     }
 
-    // download / refresh the official Telegram AES secret definition file
+    // always refresh Telegram's official secret + relay config on every start
     sh(&format!(
         "curl -s -o {} https://core.telegram.org/getProxySecret",
         aes_pwd_path
+    ));
+    sh(&format!(
+        "curl -s -o {} https://core.telegram.org/getProxyConfig",
+        conf_path
     ));
 
     // load or generate a valid 32-hex-char proxy secret, persisted across restarts
@@ -76,7 +81,7 @@ fn main() {
     let port = env::var("SERVER_PORT").unwrap_or_else(|_| "443".to_string());
 
     println!("=====================================================");
-    println!("MTProxy is starting");
+    println!("MTProxy is starting (relay mode via Telegram ME servers)");
     println!("Port: {}", port);
     println!("Secret: {}", secret);
     println!("Connect link (replace YOUR_IP with your server IP):");
@@ -85,11 +90,12 @@ fn main() {
 
     let err = Command::new(&bin_path)
         .args([
-            "-S", &secret,
-            "-H", &port,
-            "--direct",
             "-p", "8888",
+            "-H", &port,
+            "-S", &secret,
             "--aes-pwd", &aes_pwd_path,
+            "-M", "1",
+            &conf_path,
         ])
         .exec();
 
